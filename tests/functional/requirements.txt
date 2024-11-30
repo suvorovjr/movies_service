@@ -1,0 +1,7 @@
+pytest-asyncio
+aiohttp==3.11.7
+elasticsearch[async]==8.16.0
+redis==5.2.0
+pytest==8.3.3
+pydantic-settings==2.1.0
+elasticsearch_dsl

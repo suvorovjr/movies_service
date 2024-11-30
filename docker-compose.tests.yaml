@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+  fast_api:
+    container_name: fast_api_tests
+    ports:
+      - '8000:8000'
+    build:
+      context: ./fast_api
+      dockerfile: ./Dockerfile
+    env_file:
+      - .env
+    networks:
+      - tests_network
+
+  tests:
+    build:
+      context: .
+      dockerfile: ./tests/Dockerfile
+    container_name: tests
+    volumes:
+      - ./tests:/code/tests
+    env_file:
+      - .env
+    networks:
+      - tests_network
+
+  elasticsearch:
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - logger.level=WARN
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - cluster.routing.allocation.disk.watermark.low=95%
+      - cluster.routing.allocation.disk.watermark.high=97%
+      - cluster.routing.allocation.disk.watermark.flood_stage=98%
+    container_name: elasticsearch_tests
+    image: elasticsearch:8.15.3
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: curl -s http://elasticsearch:9200 >/dev/null || exit 1
+      interval: 10s
+      retries: 3
+      start_period: 10s
+      timeout: 5s
+    networks:
+      - tests_network
+
+  redis:
+    env_file:
+      - .env
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    container_name: redis_tests
+    image: redis:6.2
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      interval: 10s
+      retries: 3
+      start_period: 10s
+      timeout: 5s
+    networks:
+      - tests_network
+
+networks:
+  tests_network:
+    driver: bridge

@@ -1,0 +1,133 @@
+services:
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: nginx_movies
+    restart: always
+    volumes:
+      - static_volume:/code/static:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - admin
+    networks:
+      - movies_network
+
+  admin:
+    build:
+      context: .
+      dockerfile: movies_admin/Dockerfile
+    container_name: admin_movies
+    restart: always
+    volumes:
+      - ./movies_admin:/code
+      - static_volume:/code/static
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - movies_network
+
+  fast_api:
+    build: ./fast_api
+    container_name: fast_api_movies
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+    networks:
+      - movies_network
+  
+  redis:
+    image: redis:alpine
+    container_name: redis_movies
+    networks:
+      - movies_network
+
+  postgres:
+    image: postgres:14
+    container_name: postgres_movies
+    restart: always
+    volumes:
+      - content_db:/var/lib/postgresql/data/
+      - ./database_dump.sql:/docker-entrypoint-initdb.d/init.sql
+    env_file:
+      - ./.env
+    networks:
+      - movies_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 3
+
+  etl_service:
+    container_name: etl_service_movies
+    build:
+      context: .
+      dockerfile: etl_service/Dockerfile
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - movies_network
+
+  elasticsearch:
+    image: elasticsearch:8.15.3
+    container_name: elasticsearch_movies
+    logging:
+      driver: none
+    ports:
+      - "9200:9200"
+    expose:
+      - "9200"
+    healthcheck:
+      test: curl -s http://elasticsearch:9200 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 50
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - logger.level=WARN
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - cluster.routing.allocation.disk.watermark.low=95%
+      - cluster.routing.allocation.disk.watermark.high=97%
+      - cluster.routing.allocation.disk.watermark.flood_stage=98%
+    networks:
+      - movies_network
+
+  kibana:
+    image: kibana:8.15.3
+    restart: always
+    container_name: kibana_movies
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elastic_search:9200    # address of elasticsearch docker container which kibana will connect
+    ports:
+      - 5601:5601
+    depends_on:
+      - elasticsearch
+    networks:
+      - movies_network
+
+networks:
+  movies_network:
+    driver: bridge
+
+volumes:
+  content_db:
+  static_volume:
+  elasticsearch-data:
